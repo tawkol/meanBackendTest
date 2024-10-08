@@ -4,6 +4,18 @@ require("./config/db"); // Import the database connection
 require("dotenv").config();
 const cors = require("cors");
 router.use(cors());
+const path = require("path");
+
+
+router.get("/image/:imageName", (req, res) => {
+  const imageName = req.params.imageName;
+  const imagePath = path.join(__dirname, "public/assets/images", imageName); // Build dynamic path based on the request
+  res.sendFile(imagePath, (err) => {
+    if (err) {
+      res.status(404).send("Image not found");
+    }
+  });
+});
 
 // important!!!! middleware to parse json to add it
 router.use(express.json());
@@ -14,6 +26,7 @@ router.use("/api/prod", require("./routes/ProductRoutes"));
 router.use("/api/cart", require("./routes/CartRoutes"));
 router.use("/api/order", require("./routes/OrderRoutes"));
 router.use("/api/auth", require("./routes/Auth"));
+
 // router.use("/api/admin", require("./routes/Admin"));
 
 router.get("/test", (req, res) => {
