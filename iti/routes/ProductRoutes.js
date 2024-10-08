@@ -22,7 +22,8 @@ router.use(languageMiddleware);
 
 // Utility Function to Transform Product Data
 const transformProductData = (product, lang) => {
-  const productData = product.toObject();
+  const productData =
+    typeof product.toObject === "function" ? product.toObject() : product;
 
   // Localize name, description, and category
   const localizedFields = ["name", "description", "category"];
