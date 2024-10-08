@@ -14,7 +14,6 @@ const upload = require("../middleware/upload");
 const auth = require("../middleware/AuthMWPermission");
 const languageMiddleware = require("../middleware/LanguageMW");
 
-
 // Import Utility Function
 const { localizeData } = require("../util/localize");
 
@@ -272,6 +271,25 @@ router.get("/", async (req, res) => {
   } catch (err) {
     console.error("Error retrieving products:", err);
     res.status(500).send("Error retrieving products");
+  }
+});
+
+router.get("/randomProducts", async (req, res) => {
+  try {
+    const lang = req.lang;
+
+    // Retrieve 8 random products using MongoDB's $sample aggregation
+    const products = await Product.aggregate([{ $sample: { size: 8 } }]);
+
+    // Transform products to include localized fields and img_urls array
+    const transformedProducts = products.map((product) =>
+      transformProductData(product, lang)
+    );
+
+    res.status(200).json(transformedProducts);
+  } catch (err) {
+    console.error("Error retrieving random products:", err);
+    res.status(500).send("Error retrieving random products");
   }
 });
 
