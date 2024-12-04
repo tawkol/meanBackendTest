@@ -6,7 +6,6 @@ const cors = require("cors");
 router.use(cors());
 const path = require("path");
 
-
 router.get("/image/:imageName", (req, res) => {
   const imageName = req.params.imageName;
   const imagePath = path.join(__dirname, "public/assets/images", imageName); // Build dynamic path based on the request

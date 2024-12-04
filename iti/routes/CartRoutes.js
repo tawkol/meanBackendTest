@@ -1,160 +1,121 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
-const mongoose = require("mongoose");
 
 const router = express.Router();
 const Cart = require("../models/CartModelDB"); // Adjust the path to your Cart model
-const CartProducts = require("../models/CartProductsModelDB"); // Adjust the path to your CartProducts model
-const Product = require("../models/ProductsModelDB"); // Adjust the path to your Product model
+const languageMiddleware = require("../middleware/LanguageMW");
 
-// POST /cart
-router.post("/", async (req, res) => {
-    const token = req.header("x-auth-token");
-    // if (!token) return res.status(401).send("Access Denied");
-    try {
-        const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
-        const userid = decodedPayload.userid;
+const { transformProductData } = require("../util/localize");
 
-        // Find the cart by user ID
-        const cart = await Cart.findOne({ userId: userid });
+router.use(languageMiddleware);
 
-        if (!cart) {
-            return res.status(404).send("Cart not found");
-        }
-
-        const { productId, quantity } = req.body;
-
-        // Debugging: Log received data
-        console.log('ProductId:', productId);
-        console.log('Quantity:', quantity);
-
-        // Create a new CartProducts entry
-        const cartProduct = new CartProducts({
-            cartId: cart._id,
-            productId: productId,
-            quantity: quantity
-        });
-
-        await cartProduct.save();
-
-        return res.status(200).send("Products added to your cart successfully");
-    } catch (err) {
-        console.error('Error:', err.message);
-        res.status(400).send("Products NOT added to your cart");
-    }
-});
-
-// PATCH /cart/:prodId
-router.patch("/:prodId", async (req, res) => {
-    const token = req.header("x-auth-token");
-    if (!token) return res.status(401).send("Access Denied");
-
-    try {
-        const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
-        const userId = decodedPayload.userid;
-
-        const cart = await Cart.findOne({ userId: userId });
-
-        if (!cart) {
-            return res.status(404).send("Cart not found");
-        }
-
-        // Update the cart product entry
-        const updatedCartProduct = await CartProducts.findOneAndUpdate(
-            { cartId: cart._id, productId: req.params.prodId },
-            { quantity: req.body.quantity },
-            { new: true } // Return the updated document
-        );
-
-        if (!updatedCartProduct) {
-            return res.status(404).send("Cart product not found");
-        }
-
-        return res.status(200).send("Product quantity updated successfully");
-    } catch (err) {
-        console.error('Error:', err.message);
-        res.status(400).send("Error updating product quantity");
-    }
-});
-
-// GET /cart
 router.get("/", async (req, res) => {
-    const token = req.header("x-auth-token");
-    // if (!token) return res.status(401).send("Access Denied");
-    try {
-        const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
-        const userid = decodedPayload.userid;
+  const lang = req.lang;
+  const token = req.header("x-auth-token");
+  if (!token) return res.status(401).send("Access Denied");
 
-        const cart = await Cart.findOne({ userId: userid });
+  try {
+    const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decodedPayload.userid;
 
-        if (!cart) {
-            return res.status(404).send("Cart not found");
-        }
-
-        const cartProducts = await CartProducts.find({ cartId: cart._id }).populate("productId");
-
-        // Convert the array of instances to plain JavaScript objects
-        const cartProductsData = cartProducts.map(cartProduct => {
-            const cartProductJSON = cartProduct.toObject();
-            // Transform the img_url field from a string to an array
-            cartProductJSON.productId.img_urls = cartProductJSON.productId.img_url ? cartProductJSON.productId.img_url.split(',') : [];
-            return cartProductJSON;
-        });
-
-        return res.status(200).json(cartProductsData);
-    } catch (err) {
-        console.error('Error:', err.message);
-        res.status(400).send("Cart items NOT retrieved");
+    let cart = await Cart.findOne({ user: userId }).populate("items.product");
+    if (!cart) {
+      // Create an empty cart if it doesn't exist
+      cart = await Cart.create({ user: userId, items: [] });
     }
+    const transformedProducts = cart.items.map((item) => ({
+      quantity: item.quantity,
+      ...transformProductData(item.product, lang),
+      // product: transformProductData(item.product, lang),
+    }));
+    res.json(transformedProducts);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Server error");
+  }
 });
 
-// DELETE /cart/:prodId
-router.delete("/:prodId", async (req, res) => {
-    const token = req.header("x-auth-token");
-    // if (!token) return res.status(401).send("Access Denied");
-    try {
-        const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
-        const userid = decodedPayload.userid;
+router.post("/", async (req, res) => {
+  const token = req.header("x-auth-token");
+  if (!token) return res.status(401).send("Access Denied");
 
-        const cart = await Cart.findOne({ userId: userid });
+  const cartItem = req.body;
+  try {
+    const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decodedPayload.userid;
 
-        if (!cart) {
-            return res.status(404).send("Cart not found");
-        }
+    let cart = await Cart.findOne({ user: userId });
 
-        await CartProducts.findOneAndDelete({
-            cartId: cart._id,
-            productId: req.params.prodId
+    if (!cart) {
+      cart = await Cart.create({
+        user: userId,
+        items: [{ product: cartItem.product, quantity: cartItem.quantity }],
+      });
+    } else {
+      const itemIndex = cart.items.findIndex(
+        (item) => item.product.toString() === cartItem.product
+      );
+
+      if (itemIndex > -1) {
+        cart.items[itemIndex].quantity = cartItem.quantity;
+      } else {
+        cart.items.push({
+          product: cartItem.product,
+          quantity: cartItem.quantity,
         });
-
-        return res.status(200).send("Item deleted successfully");
-    } catch (err) {
-        console.error('Error:', err.message);
-        res.status(400).send("Item NOT deleted");
+      }
     }
+    await cart.save();
+    res.status(200).json(cart);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Server error");
+  }
 });
 
-// DELETE /cart
-router.delete("/", async (req, res) => {
-    const token = req.header("x-auth-token");
-    // if (!token) return res.status(401).send("Access Denied");
-    try {
-        const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
-        const userid = decodedPayload.userid;
+router.delete("/:productId", async (req, res) => {
+  const { productId } = req.params;
+  const token = req.header("x-auth-token");
+  if (!token) return res.status(401).send("Access Denied");
 
-        const cart = await Cart.findOne({ userId: userid });
-
-        if (!cart) {
-            return res.status(404).send("Cart not found");
-        }
-
-        await CartProducts.deleteMany({ cartId: cart._id });
-
-        return res.status(200).send("The cart has been emptied");
-    } catch (err) {
-        console.error('Error:', err.message);
-        res.status(400).send("Cart NOT emptied");
+  try {
+    const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decodedPayload.userid;
+    let cart = await Cart.findOne({ user: userId });
+    if (cart) {
+      cart.items = cart.items.filter(
+        (item) => item.product.toString() !== productId
+      );
+      await cart.save();
+      res.json(cart);
     }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Server error");
+  }
+});
+
+router.delete("/clear", async (res, req) => {
+  const token = req.header("x-auth-token");
+  if (!token) return res.status(401).send("Access Denied");
+  try {
+    const decodedPayload = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decodedPayload.userid;
+    const cart = await Cart.findOne({ user: userId });
+    if (!cart) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Cart not found" });
+    }
+
+    cart.items = [];
+    await cart.save();
+    res
+      .status(201)
+      .json({ success: true, message: "Cart cleared successfully" });
+  } catch (error) {
+    res.status(500).send("Server error", error);
+  }
 });
 
 module.exports = router;

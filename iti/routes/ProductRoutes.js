@@ -15,80 +15,20 @@ const auth = require("../middleware/AuthMWPermission");
 const languageMiddleware = require("../middleware/LanguageMW");
 
 // Import Utility Function
-const { localizeData } = require("../util/localize");
+const { transformProductData } = require("../util/localize");
 
 // Apply Language Middleware to All Routes in this Router
 router.use(languageMiddleware);
 
-// Utility Function to Transform Product Data
-const transformProductData = (product, lang) => {
-  const productData =
-    typeof product.toObject === "function" ? product.toObject() : product;
-
-  // Localize name, description, and category
-  const localizedFields = ["name", "description", "category"];
-  const localizedData = localizeData(productData, lang, localizedFields);
-
-  // Replace localized fields in productData
-  localizedFields.forEach((field) => {
-    productData[field] = localizedData[field];
-  });
-
-  // Transform img_url from a comma-separated string to an array
-  productData.img_urls = productData.img_url
-    ? productData.img_url.split(",")
-    : [];
-
-  // Optionally remove the original img_url field
-  delete productData.img_url;
-
-  return productData;
-};
-
-/**
- * @swagger
- * /api/product/categories:
- *   get:
- *     summary: Retrieve all product categories
- *     description: Retrieves a list of distinct product categories along with the count of products in each category.
- *     tags:
- *       - Products
- *     responses:
- *       200:
- *         description: List of product categories retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   category:
- *                     type: string
- *                   count:
- *                     type: integer
- *                 example:
- *                   - category: "Electronics"
- *                     count: 15
- *                   - category: "Books"
- *                     count: 10
- *       400:
- *         description: Error retrieving categories
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Error retrieving categories"
- */
 router.get("/categories", async (req, res) => {
   try {
-    const lang = req.lang;
+    // const lang = req.lang;
 
     // Aggregation to group products by category and count them
     const categories = await Product.aggregate([
       {
         $group: {
-          _id: `$category.${lang}`, // Group by the localized category field
+          _id: `$category`, // Group by the localized category field
           count: { $sum: 1 }, // Count the number of products per category
         },
       },
@@ -111,79 +51,27 @@ router.get("/categories", async (req, res) => {
   }
 });
 
-// getProductByCategory
-/**
- * @swagger
- * /api/product/category/{category}:
- *   get:
- *     summary: Retrieve products by category
- *     description: Retrieves a list of products that belong to the specified category. Transforms `img_url` into an array of image URLs.
- *     tags:
- *       - Products
- *     parameters:
- *       - in: path
- *         name: category
- *         required: true
- *         description: The category of products to retrieve
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: List of products in the specified category
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                     example: 1
- *                   name:
- *                     type: string
- *                     example: "Sample Product"
- *                   category:
- *                     type: string
- *                     example: "Electronics"
- *                   price:
- *                     type: number
- *                     format: float
- *                     example: 99.99
- *                   img_urls:
- *                     type: array
- *                     items:
- *                       type: string
- *                     example: ["image1.jpg", "image2.jpg"]
- *                   description:
- *                     type: string
- *                     example: "A detailed description of the product."
- *               example:
- *                 - id: 1
- *                   name: "Sample Product"
- *                   category: "Electronics"
- *                   price: 99.99
- *                   img_urls: ["image1.jpg", "image2.jpg"]
- *                   description: "A detailed description of the product."
- *       400:
- *         description: Error retrieving products
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Error retrieving product"
- */
 router.get("/category/:category", async (req, res) => {
   try {
     const lang = req.lang;
     const requestedCategory = req.params.category;
 
+    // Pagination parameters
+    const page = parseInt(req.query.page) || 1; // Default to page 1
+    const limit = parseInt(req.query.limit) || 10; // Default limit to 10
+    const skip = (page - 1) * limit; // Calculate how many items to skip
+
     // Find the category in the specified language
     const categoryFilter = {};
-    categoryFilter[`category.${lang}`] = requestedCategory;
+    categoryFilter[`category.en`] = requestedCategory;
 
-    // Find products matching the localized category
-    const products = await Product.find({ ...categoryFilter });
+    // Find products matching the localized category with pagination
+    const products = await Product.find({ ...categoryFilter })
+      .skip(skip)
+      .limit(limit);
+
+    const totalProducts = await Product.countDocuments(categoryFilter); // Get total number of products
+    const totalPages = Math.ceil(totalProducts / limit); // Calculate total pages
 
     if (!products.length) {
       return res.status(404).send("No products found in this category.");
@@ -194,81 +82,43 @@ router.get("/category/:category", async (req, res) => {
       transformProductData(product, lang)
     );
 
-    res.status(200).json(transformedProducts);
+    res.status(200).json({
+      products: transformedProducts,
+      totalPages,
+      currentPage: page,
+    });
   } catch (err) {
     console.error("Error retrieving products by category:", err);
     res.status(400).send("Error retrieving products");
   }
 });
 
-/**
- * @swagger
- * /api/product:
- *   get:
- *     summary: Retrieve all products
- *     description: Retrieves a list of all products. Transforms `img_url` into an array of image URLs.
- *     tags:
- *       - Products
- *     responses:
- *       200:
- *         description: List of all products
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                     example: 1
- *                   name:
- *                     type: string
- *                     example: "Sample Product"
- *                   category:
- *                     type: string
- *                     example: "Electronics"
- *                   price:
- *                     type: number
- *                     format: float
- *                     example: 99.99
- *                   img_urls:
- *                     type: array
- *                     items:
- *                       type: string
- *                     example: ["image1.jpg", "image2.jpg"]
- *                   description:
- *                     type: string
- *                     example: "A detailed description of the product."
- *               example:
- *                 - id: 1
- *                   name: "Sample Product"
- *                   category: "Electronics"
- *                   price: 99.99
- *                   img_urls: ["image1.jpg", "image2.jpg"]
- *                   description: "A detailed description of the product."
- *       400:
- *         description: Error retrieving products
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Error retrieving products"
- */
-
 router.get("/", async (req, res) => {
   try {
     const lang = req.lang;
 
-    // Retrieve all products
-    const products = await Product.find();
+    // Extract pagination parameters from the query
+    const page = parseInt(req.query.page) || 1; // Default to page 1 if not provided
+    const limit = parseInt(req.query.limit) || 10; // Default to 10 items per page if not provided
+    const skip = (page - 1) * limit;
+
+    // Retrieve products with pagination
+    const products = await Product.find().skip(skip).limit(limit);
 
     // Transform products to include localized fields and img_urls array
     const transformedProducts = products.map((product) =>
       transformProductData(product, lang)
     );
 
-    res.status(200).json(transformedProducts);
+    // Get total count of products
+    const totalProducts = await Product.countDocuments();
+
+    res.status(200).json({
+      currentPage: page,
+      totalPages: Math.ceil(totalProducts / limit),
+      totalProducts,
+      products: transformedProducts,
+    });
   } catch (err) {
     console.error("Error retrieving products:", err);
     res.status(500).send("Error retrieving products");
@@ -294,65 +144,6 @@ router.get("/randomProducts", async (req, res) => {
   }
 });
 
-// to make product - only admin can add - MW
-// auth
-/**
- * @swagger
- * /api/product:
- *   post:
- *     summary: Add a new product
- *     description: Adds a new product to the database. Only admin users can add products. Requires file uploads for images.
- *     tags:
- *       - Products
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *                 example: "New Product"
- *               description:
- *                 type: string
- *                 example: "A detailed description of the new product."
- *               price:
- *                 type: number
- *                 format: float
- *                 example: 49.99
- *               category:
- *                 type: string
- *                 example: "Books"
- *               prodimg:
- *                 type: array
- *                 items:
- *                   type: string
- *                 description: An array of product image files
- *                 format: binary
- *     responses:
- *       200:
- *         description: Product added successfully
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Product added successfully"
- *       400:
- *         description: Product addition failed
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Product addition failed. Please check the request data."
- *       403:
- *         description: Unauthorized - Only admins can add products
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Unauthorized - Only admins can add products"
- */
 // router.post("/", upload.array("prodimg", 10), auth, async (req, res) => {
 //   try {
 //     const imgUrls = req.files.map(file => file.filename);
@@ -372,7 +163,6 @@ router.get("/randomProducts", async (req, res) => {
 //   }
 // });
 
-/**to make product - anyone */
 router.post("/", upload.array("prodimg", 10), async (req, res) => {
   try {
     // Extract image filenames from uploaded files
@@ -403,90 +193,14 @@ router.post("/", upload.array("prodimg", 10), async (req, res) => {
   }
 });
 
-// search = sort
-/**
- * @swagger
- * /api/product/searchsort:
- *   get:
- *     summary: Search and sort products
- *     description: Searches for products based on a search query and sorts them according to the specified criteria. Supports optional category filtering.
- *     tags:
- *       - Products
- *     parameters:
- *       - in: query
- *         name: search
- *         schema:
- *           type: string
- *         description: Search query to filter products by name
- *         example: "laptop"
- *       - in: query
- *         name: sort_by
- *         schema:
- *           type: string
- *           enum:
- *             - name_asc
- *             - name_desc
- *             - price_asc
- *             - price_desc
- *         description: Sorting criteria for the product list
- *         example: "price_desc"
- *       - in: query
- *         name: category
- *         schema:
- *           type: string
- *         description: Filter products by category
- *         example: "Electronics"
- *     responses:
- *       200:
- *         description: List of products that match the search query and sorting criteria
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                     example: 1
- *                   name:
- *                     type: string
- *                     example: "Sample Product"
- *                   category:
- *                     type: string
- *                     example: "Electronics"
- *                   price:
- *                     type: number
- *                     format: float
- *                     example: 99.99
- *                   img_urls:
- *                     type: array
- *                     items:
- *                       type: string
- *                     example: ["image1.jpg", "image2.jpg"]
- *                   description:
- *                     type: string
- *                     example: "A detailed description of the product."
- *               example:
- *                 - id: 1
- *                   name: "Sample Product"
- *                   category: "Electronics"
- *                   price: 99.99
- *                   img_urls: ["image1.jpg", "image2.jpg"]
- *                   description: "A detailed description of the product."
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: "Error message"
- */
 router.get("/searchsort", async (req, res) => {
-  const { search = "", sort_by = "", category = "" } = req.query;
+  const {
+    search = "",
+    sort_by = "",
+    category = "",
+    page = 1,
+    limit = 10,
+  } = req.query;
   const lang = req.lang;
 
   // Determine sort order based on sort_by parameter
@@ -506,80 +220,41 @@ router.get("/searchsort", async (req, res) => {
       filter[`category.${lang}`] = category;
     }
 
+    // Convert page and limit to numbers and calculate skip
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
     // Find products matching the criteria and apply sorting
-    const products = await Product.find(filter).sort(sort);
+    const products = await Product.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum);
 
     if (!products.length) {
       return res.status(404).send("No products match the search criteria.");
     }
+
+    // Get the total number of products matching the filter (for pagination)
+    const totalProducts = await Product.countDocuments(filter);
 
     // Transform products to include localized fields and img_urls array
     const transformedProducts = products.map((product) =>
       transformProductData(product, lang)
     );
 
-    res.status(200).json(transformedProducts);
+    res.status(200).json({
+      products: transformedProducts,
+      currentPage: pageNum,
+      totalPages: Math.ceil(totalProducts / limitNum),
+      totalProducts,
+    });
   } catch (error) {
     console.error("Error in searchsort route:", error);
     res.status(500).json({ error: "Error retrieving products." });
   }
 });
 
-//feedback
-/**
- * @swagger
- * /api/product/feedback:
- *   post:
- *     summary: Submit feedback for a product
- *     description: Allows an authenticated user to submit feedback and a rating for a specific product. Requires authentication via a JWT token.
- *     tags:
- *       - Products
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               productId:
- *                 type: integer
- *                 description: ID of the product being reviewed
- *                 example: 1
- *               feedback:
- *                 type: string
- *                 description: The feedback text for the product
- *                 example: "Great product, highly recommend!"
- *               rate:
- *                 type: integer
- *                 description: Rating given to the product (1 to 5)
- *                 example: 4
- *             required:
- *               - productId
- *               - feedback
- *               - rate
- *     responses:
- *       200:
- *         description: Feedback added successfully
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "feedback on product added successfully"
- *       400:
- *         description: Error adding feedback
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "feedback on product NOT added"
- *       401:
- *         description: Unauthorized - Access denied or invalid token
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Unauthorized - Access Denied"
- */
 router.post("/feedback", async (req, res) => {
   const token = req.header("x-auth-token");
 
@@ -613,68 +288,8 @@ router.post("/feedback", async (req, res) => {
   }
 });
 
-/**
- * @swagger
- * /api/product/feedbacks/{productId}:
- *   get:
- *     summary: Retrieve all feedbacks for a specific product
- *     description: Fetches all feedbacks and associated user names for a given product ID.
- *     tags:
- *       - Products
- *     parameters:
- *       - in: path
- *         name: productId
- *         required: true
- *         description: ID of the product to retrieve feedbacks for
- *         schema:
- *           type: integer
- *         example: 1
- *     responses:
- *       200:
- *         description: List of feedbacks for the specified product
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                     description: Feedback ID
- *                     example: 1
- *                   feedback:
- *                     type: string
- *                     description: The feedback text
- *                     example: "Great product, will buy again!"
- *                   rate:
- *                     type: integer
- *                     description: Rating given (1 to 5)
- *                     example: 5
- *                   User:
- *                     type: object
- *                     properties:
- *                       name:
- *                         type: string
- *                         description: Name of the user who provided the feedback
- *                         example: "John Doe"
- *               example:
- *                 - id: 1
- *                   feedback: "Great product, will buy again!"
- *                   rate: 5
- *                   User:
- *                     name: "John Doe"
- *       500:
- *         description: Error retrieving feedbacks
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Error fetching feedbacks"
- */
 router.get("/feedbacks/:productId", async (req, res) => {
   const { productId } = req.params;
-  console.log("Received productId:", productId); // Log the received productId
 
   // Check if the productId is a valid ObjectId
   if (!mongoose.Types.ObjectId.isValid(productId)) {
@@ -706,73 +321,6 @@ router.get("/feedbacks/:productId", async (req, res) => {
 // router.delete("/:id", auth, ProductsController.deleteProductByID);
 
 // getProductByID
-/**
- * @swagger
- * /api/product/prod/{id}:
- *   get:
- *     summary: Retrieve a product by ID
- *     description: Retrieves a product based on its ID. Transforms `img_url` into an array of image URLs.
- *     tags:
- *       - Products
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the product to retrieve
- *         schema:
- *           type: integer
- *     responses:
- *       200:
- *         description: Product retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 id:
- *                   type: integer
- *                   example: 1
- *                 name:
- *                   type: string
- *                   example: "Sample Product"
- *                 category:
- *                   type: string
- *                   example: "Electronics"
- *                 price:
- *                   type: number
- *                   format: float
- *                   example: 99.99
- *                 img_urls:
- *                   type: array
- *                   items:
- *                     type: string
- *                   example: ["image1.jpg", "image2.jpg"]
- *                 description:
- *                   type: string
- *                   example: "A detailed description of the product."
- *               example:
- *                 id: 1
- *                 name: "Sample Product"
- *                 category: "Electronics"
- *                 price: 99.99
- *                 img_urls: ["image1.jpg", "image2.jpg"]
- *                 description: "A detailed description of the product."
- *       404:
- *         description: Product not found
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Product with this id not found"
- *       400:
- *         description: Error retrieving product
- *         content:
- *           text/plain:
- *             schema:
- *               type: string
- *               example: "Error retrieving product"
- */
-
 router.get("/:id", async (req, res) => {
   try {
     const lang = req.lang;

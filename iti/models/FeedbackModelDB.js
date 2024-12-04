@@ -1,9 +1,4 @@
 const mongoose = require('mongoose');
-
-// User and Product models should be defined separately, assuming they exist.
-const  User  = require("./UserModelDB");
-const  Product  = require("./ProductsModelDB");
-
 // Define the Feedback schema
 const feedbackSchema = new mongoose.Schema({
   rate: {

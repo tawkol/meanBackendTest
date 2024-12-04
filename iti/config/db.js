@@ -1,9 +1,7 @@
 const mongoose = require("mongoose");
+require("dotenv").config();
 
-// Connection URI
-// const uri = "mongodb+srv://iti:12345@cluster0.pvph0.mongodb.net/iti?retryWrites=true&w=majority&appName=Cluster0";
-const uri = "mongodb+srv://zamtag11:9ZrnE6P4wkvfQvxR@meanprojectdb.o94sb.mongodb.net/";
-
+const uri = process.env.db;
 // Connect to MongoDB
 mongoose
   .connect(uri)

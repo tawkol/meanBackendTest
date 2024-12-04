@@ -1,23 +1,23 @@
-const mongoose = require('mongoose');
-const { Schema } = mongoose;
+const mongoose = require("mongoose");
+const Schema = mongoose.Schema;
+const { AddressSchema, OrderItemSchema } = require("./schemas");
 
-const orderSchema = new Schema({
-  userId: {
-    type: Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+const OrderSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    products: [OrderItemSchema],
+    
+    totalAmount: { type: Number, required: true },
+    status: {
+      type: String,
+      enum: ["pending", "shipped", "delivered", "canceled"],
+      default: "pending",
+    },
+    payment: { type: Schema.Types.ObjectId, ref: "Payment" },
+    shippingAddress: AddressSchema,
   },
-  order_status: {
-    type: String,
-    enum: ["Shipped", "Waiting for Confirmation"],
-    required: true,
-  }
-}, {
-  timestamps: true // Automatically adds createdAt and updatedAt fields
-});
+  { timestamps: true }
+);
 
-// One-to-many relationship between User and Orders
-orderSchema.index({ userId: 1 });
-
-const Order = mongoose.model('Order', orderSchema);
+const Order = mongoose.model("Order", OrderSchema);
 module.exports = Order;

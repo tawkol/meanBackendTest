@@ -1,17 +1,12 @@
-const Joi = require('joi');
+const Joi = require("joi");
 
 const userSchema = Joi.object({
-  name: Joi.string()
-    .pattern(new RegExp('^[A-Z][a-z]*$')) // Starts with a capital letter
-    .min(4)
-    .max(15)
-    .required(),
+  name: Joi.string().min(4).max(15).required(),
   email: Joi.string()
     .email() // Automatically validates email pattern
     .required(),
-  password: Joi.string()
-    .min(5)
-    .required(),
+  password: Joi.string().min(5).required(),
+  phone: Joi.string().min(10).required()
 });
 
 module.exports = userSchema;
